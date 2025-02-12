@@ -1,17 +1,49 @@
-name: tickeaka-backend-reservation
+name: ticketaka-backend-reservation
 
 on:
   push:
     branches:
       - main
-
+  pull_request:
+    types: [opened, synchronize, reopened]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Checkout
+      - name: Checkout
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: 'zulu'
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+    
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+          restore-keys: ${{ runner.os }}-gradle
+
+      - name: Build and analyze with SonarQube
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build sonar --info
+
+      # Auto-tagging 및 Release 생성
       - name: Bump version and push tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v5.5 # 가져다 쓸 auto tagging 프로그램
@@ -25,8 +57,9 @@ jobs:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           release_name: Release ${{ steps.tag_version.outputs.new_tag }}
           body: ${{ steps.tag_version.outputs.changelog }}
-      -
-        name: Docker meta
+
+      # Docker 이미지 빌드 및 Harbor에 Push 
+      - name: Docker meta
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v1
         with:
@@ -47,12 +80,14 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: harbor.hotsun.store/ticketaka/ticketaka-reservation:${{ steps.tag_version.outputs.new_tag }}
+      
+      # Kubernetes 배포를 위한 Kustomize 업데이트
       - name: Checkout for Kustomize repository
         uses: actions/checkout@v2
         with:
           # kubernetes yaml 파일 저장
           repository: F1T4-HOTSUN/manifest # k8s yaml 파일이 있는 repo
-          ref: main  # branch 이름
+          ref: main # branch 이름
           # 내 repository에 push 하기 위한 Personal Access Token이 필요
           token: ${{ secrets.PAT }} # Github Action token을 발급받아서 repo secrect에 등록해줘야한다
           path: manifest # 최상위 경로로 repository와 동일하게 설정
@@ -66,7 +101,8 @@ jobs:
           cd manifest/resources/reservation
           kustomize edit set image harbor.hotsun.store/ticketaka/ticketaka-reservation:${{ steps.tag_version.outputs.new_tag }}
           cat kustomization.yaml
-      # 수정된 kustomization.yaml 파일 commit push
+
+      # 수정된 kustomization.yaml 파일(manifest) commit push
       - name: Commit manifest files
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
@@ -77,3 +113,4 @@ jobs:
           git config --global github.token ${{ secrets.PAT }}
           git commit -am "Update image tag harbor.hotsun.store/ticketaka/ticketaka-reservation:${{ steps.tag_version.outputs.new_tag }}"
           git push -u origin main
+          

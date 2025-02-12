@@ -3,6 +3,8 @@ plugins {
 	id 'war'
 	id 'org.springframework.boot' version '2.7.8'
 	id 'io.spring.dependency-management' version '1.0.15.RELEASE'
+	id "org.sonarqube" version "6.0.1.5171"
+
 }
 
 group = 'com.ticketaka.reservation'
@@ -36,4 +38,11 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+sonar {
+  properties {
+    property "sonar.projectKey", "ticketaka-reservation"
+    property "sonar.projectName", "ticketaka-reservation"
+  }
 }
